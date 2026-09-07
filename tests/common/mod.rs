@@ -1,9 +1,7 @@
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::path::Path;
 
-use jsonwebtoken::{EncodingKey, Header, encode};
 use reqwest::{Client, Response, Url};
-use time::{Duration, UtcDateTime};
 use tokio::{net::TcpListener, task::JoinHandle};
 use tracing::{Instrument, Level, Span, info};
 use ulid::Ulid;
@@ -76,29 +74,15 @@ pub async fn default_config(test_name: &str) -> risc_v_sim_web::Config {
         codesize_max: 256,
         mongo_uri: TEST_MONGO_URI.to_string(),
         db_name: TEST_DB_NAME.to_string(),
-        client_id: "test_client_id".to_string(),
-        client_secret: "test_client_secret".to_string(),
-        jwt_secret: "test_secret_key_for_integration_tests".to_string(),
-        auth_url: "https://example.com/auth".to_string(),
-        token_url: "https://example.com/token".to_string(),
+
+        #[cfg(feature = "jwt_authorization")]
+        #[allow(unreachable_code)]
+        jwt_authorization: panic!("Don't run tests with jwt authorization"),
+
+        #[cfg(feature = "github_authentication")]
+        #[allow(unreachable_code)]
+        github_authentication: panic!("Don't run tests with github authentication"),
     }
-}
-
-#[allow(dead_code)]
-pub fn generate_test_token(user_id: &str, login: &str, jwt_secret: &str) -> String {
-    let claims = risc_v_sim_web::auth::Claims {
-        sub: user_id.to_string(),
-        login: login.to_string(),
-        name: Some("Test User".to_string()),
-        exp: (UtcDateTime::now() + Duration::hours(24)).unix_timestamp(),
-    };
-
-    encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(jwt_secret.as_ref()),
-    )
-    .unwrap()
 }
 
 #[allow(dead_code)]
@@ -109,13 +93,6 @@ pub async fn submit_program(
     path: impl AsRef<Path>,
 ) -> Response {
     let request_url = server_url(port).join("api/submission").unwrap();
-    let token = generate_test_token(
-        "123456",
-        "testuser",
-        "test_secret_key_for_integration_tests",
-    );
-    let cookie = format!("jwt={}", token);
-
     let form = reqwest::multipart::Form::new()
         .text("ticks", ticks.to_string())
         .file("file", path)
@@ -123,7 +100,7 @@ pub async fn submit_program(
         .unwrap();
     client
         .post(request_url)
-        .header("Cookie", cookie)
+        .header("authorization", risc_v_sim_web::auth::ADMIN_TOKEN)
         .multipart(form)
         .send()
         .await
@@ -135,16 +112,9 @@ pub async fn get_submission(client: &Client, port: u16, submission_id: Ulid) -> 
     let request_url = server_url(port)
         .join(&format!("api/submission/{submission_id}/trace"))
         .unwrap();
-    let token = generate_test_token(
-        "123456",
-        "testuser",
-        "test_secret_key_for_integration_tests",
-    );
-    let cookie = format!("jwt={}", token);
-
     client
         .get(request_url)
-        .header("Cookie", cookie)
+        .header("authorization", risc_v_sim_web::auth::ADMIN_TOKEN)
         .send()
         .await
         .unwrap()
@@ -155,16 +125,9 @@ pub async fn get_submission_source(client: &Client, port: u16, submission_id: Ul
     let request_url = server_url(port)
         .join(&format!("api/submission/{submission_id}/source"))
         .unwrap();
-    let token = generate_test_token(
-        "123456",
-        "testuser",
-        "test_secret_key_for_integration_tests",
-    );
-    let cookie = format!("jwt={}", token);
-
     client
         .get(request_url)
-        .header("Cookie", cookie)
+        .header("authorization", risc_v_sim_web::auth::ADMIN_TOKEN)
         .send()
         .await
         .unwrap()
