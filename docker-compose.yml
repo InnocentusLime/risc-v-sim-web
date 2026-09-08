@@ -1,0 +1,24 @@
+version: "3"
+
+services:
+    web:
+        build: ./
+        ports:
+            - "3000:3000"
+        environment:
+            SIMULATOR_BINARY: "/usr/local/bin/risc-v-sim"
+            AS_BINARY: "riscv64-linux-gnu-as"
+            LD_BINARY: "riscv64-linux-gnu-ld"
+            CODESIZE_MAX: "2048"
+            TICKS_MAX: "128"
+            MONGODB_URI: "mongodb://localhost:27017"
+            MONGODB_DB: "riscv_sim"
+            SUBMISSIONS_FOLDER: "submission"
+        restart: always
+
+    db:
+        image: mongo:7
+        environment:
+            MONGO_INITDB_DATABASE: riscv_sim_test
+        network_mode: service:web
+        restart: always

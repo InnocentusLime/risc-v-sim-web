@@ -14,19 +14,7 @@ RUN cp target/release/risc-v-sim /usr/local/bin/
 RUN risc-v-sim --help
 
 WORKDIR /app
-RUN cargo build --release
-
-ENV SIMULATOR_BINARY="/usr/local/bin/risc-v-sim"
-ENV AS_BINARY="riscv64-linux-gnu-as"
-ENV LD_BINARY="riscv64-linux-gnu-ld"
-ENV CODESIZE_MAX="2048"
-ENV TICKS_MAX="128"
-ENV MONGODB_URI="mongodb://localhost:27017"
-ENV MONGODB_DB="riscv_sim"
-ENV SUBMISSIONS_FOLDER="submission"
-
-ENV GITHUB_CLIENT_ID=""
-ENV GITHUB_CLIENT_SECRET=""
+RUN cargo build --features "noop_authorization" --release
 
 RUN mkdir -p /app/submission
 
@@ -39,5 +27,3 @@ ENTRYPOINT ./target/release/risc-v-sim-web \
     --codesize-max ${CODESIZE_MAX} \
     --ticks-max ${TICKS_MAX} \
     --submissions-folder ${SUBMISSIONS_FOLDER} \
-    --client-id ${GITHUB_CLIENT_ID} \
-    --jwt-token-path "/app/jwt_secret_example"
