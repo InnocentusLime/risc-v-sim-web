@@ -9,7 +9,7 @@ use anyhow::Context;
 use axum::body::Body;
 use axum::extract::multipart::Field;
 use axum::extract::{Multipart, Path, State};
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
@@ -44,28 +44,41 @@ async fn get_submission_trace_handler(
     State(state): State<Arc<AppState>>,
     Path(ulid): Path<Ulid>,
 ) -> Response {
-    serve_file(
+    let fut = open_file(
         submission_file(&state.submissions_folder, ulid),
-        "application/json",
-    )
-    .await
+        ApiError::SubmissionSourceNotFound(ulid),
+    );
+
+    match fut.await {
+        Ok(f) => serve_file(f, "application/json"),
+        Err(err) => err.into_response(),
+    }
 }
 
 async fn get_submission_source_handler(
     State(state): State<Arc<AppState>>,
     Path(ulid): Path<Ulid>,
 ) -> Response {
-    serve_file(source_file(&state.submissions_folder, ulid), "text/plain").await
+    let fut = open_file(
+        source_file(&state.submissions_folder, ulid),
+        ApiError::SubmissionSourceNotFound(ulid),
+    );
+
+    match fut.await {
+        Ok(f) => serve_file(f, "text/plain"),
+        Err(err) => err.into_response(),
+    }
 }
 
-async fn serve_file(path: PathBuf, content_type: &'static str) -> Response {
-    let file = match tokio::fs::File::open(&path).await {
-        Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return StatusCode::NOT_FOUND.into_response();
-        }
-        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-    };
+async fn open_file(path: PathBuf, not_found_err: ApiError) -> Result<tokio::fs::File, ApiError> {
+    match tokio::fs::File::open(&path).await {
+        Ok(f) => Ok(f),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Err(not_found_err),
+        Err(err) => Err(ApiError::InternalError(anyhow::anyhow!("io error: {err}"))),
+    }
+}
+
+fn serve_file(file: tokio::fs::File, content_type: &'static str) -> Response {
     let stream = ReaderStream::with_capacity(file, 16 * 1024);
     let mut res = Response::new(Body::from_stream(stream));
     res.headers_mut()

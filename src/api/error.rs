@@ -15,6 +15,8 @@ pub enum ApiError {
     InternalError(anyhow::Error),
     BadRequest(anyhow::Error),
     SubmissionNotFound(ulid::Ulid),
+    SubmissionSourceNotFound(ulid::Ulid),
+    SubmissionTraceNotFound(ulid::Ulid),
     Unauthorized,
 }
 
@@ -24,6 +26,8 @@ impl ApiError {
             ApiError::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             ApiError::BadRequest(_) => StatusCode::BAD_REQUEST,
             ApiError::SubmissionNotFound(_) => StatusCode::NOT_FOUND,
+            ApiError::SubmissionSourceNotFound(_) => StatusCode::NOT_FOUND,
+            ApiError::SubmissionTraceNotFound(_) => StatusCode::NOT_FOUND,
             ApiError::Unauthorized => StatusCode::UNAUTHORIZED,
         }
     }
@@ -33,6 +37,8 @@ impl ApiError {
             ApiError::InternalError(_) => "internal_error",
             ApiError::BadRequest(_) => "bad_request",
             ApiError::SubmissionNotFound(_) => "submission_not_found",
+            ApiError::SubmissionSourceNotFound(_) => "submission_source_not_found",
+            ApiError::SubmissionTraceNotFound(_) => "submission_trace_not_found",
             ApiError::Unauthorized => "unauthorized",
         }
     }
@@ -42,6 +48,8 @@ impl ApiError {
             ApiError::InternalError(error) => format!("{error:#}"),
             ApiError::BadRequest(error) => format!("{error:#}"),
             ApiError::SubmissionNotFound(id) => format!("Submission {id} not found"),
+            ApiError::SubmissionSourceNotFound(id) => format!("Submission {id} source not found"),
+            ApiError::SubmissionTraceNotFound(id) => format!("Submission {id} source not found"),
             ApiError::Unauthorized => String::from("Unauthorized request"),
         }
     }
