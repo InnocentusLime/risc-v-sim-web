@@ -1,3 +1,7 @@
+mod error;
+
+pub use error::*;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -5,7 +9,7 @@ use anyhow::Context;
 use axum::body::Body;
 use axum::extract::multipart::Field;
 use axum::extract::{Multipart, Path, State};
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
@@ -40,28 +44,41 @@ async fn get_submission_trace_handler(
     State(state): State<Arc<AppState>>,
     Path(ulid): Path<Ulid>,
 ) -> Response {
-    serve_file(
+    let fut = open_file(
         submission_file(&state.submissions_folder, ulid),
-        "application/json",
-    )
-    .await
+        ApiError::SubmissionSourceNotFound(ulid),
+    );
+
+    match fut.await {
+        Ok(f) => serve_file(f, "application/json"),
+        Err(err) => err.into_response(),
+    }
 }
 
 async fn get_submission_source_handler(
     State(state): State<Arc<AppState>>,
     Path(ulid): Path<Ulid>,
 ) -> Response {
-    serve_file(source_file(&state.submissions_folder, ulid), "text/plain").await
+    let fut = open_file(
+        source_file(&state.submissions_folder, ulid),
+        ApiError::SubmissionSourceNotFound(ulid),
+    );
+
+    match fut.await {
+        Ok(f) => serve_file(f, "text/plain"),
+        Err(err) => err.into_response(),
+    }
 }
 
-async fn serve_file(path: PathBuf, content_type: &'static str) -> Response {
-    let file = match tokio::fs::File::open(&path).await {
-        Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return StatusCode::NOT_FOUND.into_response();
-        }
-        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-    };
+async fn open_file(path: PathBuf, not_found_err: ApiError) -> Result<tokio::fs::File, ApiError> {
+    match tokio::fs::File::open(&path).await {
+        Ok(f) => Ok(f),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Err(not_found_err),
+        Err(err) => Err(ApiError::InternalError(anyhow::anyhow!("io error: {err}"))),
+    }
+}
+
+fn serve_file(file: tokio::fs::File, content_type: &'static str) -> Response {
     let stream = ReaderStream::with_capacity(file, 16 * 1024);
     let mut res = Response::new(Body::from_stream(stream));
     res.headers_mut()
@@ -81,12 +98,11 @@ async fn get_submission_handler(
         .db
         .get_submission_by_uuid(ulid)
         .await
-        .context("fetch")
-        .map_err(ApiError::internal_error)?;
+        .context("fetch")?;
 
     match record {
         Some(r) => Ok(Json(r)),
-        None => Err(ApiError::submission_not_found()),
+        None => Err(ApiError::SubmissionNotFound(ulid)),
     }
 }
 
@@ -102,7 +118,7 @@ async fn create_submission_handler(
     let (ticks, source_code) = parse_submit_inputs(multipart, state.as_ref())
         .await
         .context("parse")
-        .map_err(ApiError::bad_request)?;
+        .map_err(ApiError::BadRequest)?;
     tracing::debug!(
         user_id=user_id,
         user_login=user_login,
@@ -111,10 +127,11 @@ async fn create_submission_handler(
         "New submission",
     );
 
-    if let Err(err) = state.db.create_submission_with_user(ulid, user_id).await {
-        return Err(ApiError::internal_error(err));
-    }
-
+    state
+        .db
+        .create_submission_with_user(ulid, user_id)
+        .await
+        .context("create submission")?;
     state
         .task_send
         .send(SubmissionTask {
@@ -124,8 +141,7 @@ async fn create_submission_handler(
             user_id,
         })
         .await
-        .context("send task")
-        .map_err(ApiError::internal_error)?;
+        .context("send task")?;
 
     Ok(Json(CreateSubmissionResponse { ulid }))
 }
@@ -181,79 +197,12 @@ async fn list_submissions_handler(
         .db
         .get_user_submissions(user.id)
         .await
-        .context("fetch")
-        .map_err(ApiError::internal_error)?;
+        .context("fetch")?;
 
     Ok(Json(UserSubmissionsResponse { submissions }))
 }
 
-pub type ApiResult<T> = Result<Json<T>, ApiError>;
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserSubmissionsResponse {
     pub submissions: Vec<SubmissionRecord>,
-}
-
-pub struct ApiError {
-    pub status: StatusCode,
-    pub code: &'static str,
-    pub cause: anyhow::Error,
-}
-
-impl ApiError {
-    pub fn internal_error(cause: anyhow::Error) -> Self {
-        ApiError {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            code: "internal_error",
-            cause,
-        }
-    }
-
-    pub fn bad_request(cause: anyhow::Error) -> Self {
-        ApiError {
-            status: StatusCode::BAD_REQUEST,
-            code: "bad_request",
-            cause,
-        }
-    }
-
-    pub fn submission_not_found() -> Self {
-        ApiError {
-            status: StatusCode::NOT_FOUND,
-            code: "submission_not_found",
-            cause: anyhow::anyhow!("Submission not found"),
-        }
-    }
-
-    pub fn unauthorized() -> Self {
-        ApiError {
-            status: StatusCode::UNAUTHORIZED,
-            code: "unauthorized",
-            cause: anyhow::anyhow!("Unauthorized access"),
-        }
-    }
-
-    pub fn is_unauthorized(&self) -> bool {
-        self.code == "unauthorized" && self.status == StatusCode::UNAUTHORIZED
-    }
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        tracing::error!(err_code = self.code, "error: {:#}", self.cause);
-
-        let err = format!("{:#}", self.cause);
-        let body = Json(ApiErrorResponse {
-            err,
-            code: self.code,
-        });
-
-        (self.status, body).into_response()
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ApiErrorResponse {
-    pub code: &'static str,
-    pub err: String,
 }

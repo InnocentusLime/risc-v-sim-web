@@ -14,11 +14,11 @@ pub fn get_user(
     request: &Request<axum::body::Body>,
 ) -> Result<User, ApiError> {
     let Some(auth) = request.headers().get(axum::http::header::AUTHORIZATION) else {
-        return Err(ApiError::unauthorized());
+        return Err(ApiError::Unauthorized);
     };
 
     if auth.as_bytes() != ADMIN_TOKEN.as_bytes() {
-        return Err(ApiError::unauthorized());
+        return Err(ApiError::Unauthorized);
     }
 
     Ok(User {

@@ -69,7 +69,7 @@ pub async fn auth_middleware(
                 request.extensions_mut().insert(user);
                 return next.run(request).await;
             }
-            Err(e) if e.is_unauthorized() => continue,
+            Err(e) if matches!(e, ApiError::Unauthorized) => continue,
             Err(e) => {
                 tracing::debug!(path = path, "Unauthorized access");
                 return e.into_response();
@@ -77,7 +77,7 @@ pub async fn auth_middleware(
         }
     }
 
-    return ApiError::unauthorized().into_response();
+    return ApiError::Unauthorized.into_response();
 }
 
 pub async fn logout_handler() -> (CookieJar, Redirect) {

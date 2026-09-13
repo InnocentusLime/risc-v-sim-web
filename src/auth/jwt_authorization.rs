@@ -89,7 +89,7 @@ pub fn get_user(
 ) -> Result<User, ApiError> {
     let state = &state.jwt_authorization;
     let Some(token) = cookie_jar.get("jwt") else {
-        return Err(ApiError::unauthorized());
+        return Err(ApiError::Unauthorized);
     };
 
     let claims_result = decode::<Claims>(
@@ -106,7 +106,7 @@ pub fn get_user(
         }),
         Err(err) => {
             tracing::debug!("Invalid JWT token: {err:#}");
-            return Err(ApiError::unauthorized());
+            return Err(ApiError::Unauthorized);
         }
     }
 }
