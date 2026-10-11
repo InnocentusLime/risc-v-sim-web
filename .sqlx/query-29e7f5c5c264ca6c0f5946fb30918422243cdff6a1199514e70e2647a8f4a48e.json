@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id as \"id: _\", status as \"status: _\", created_at, created_by as \"created_by: _\" FROM submissions\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: _",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "submissions",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "status: _",
+        "type_info": {
+          "Custom": {
+            "name": "submission_status",
+            "kind": {
+              "Enum": [
+                "draft",
+                "queued",
+                "running",
+                "complete"
+              ]
+            }
+          }
+        },
+        "origin": {
+          "Table": {
+            "table": "submissions",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "submissions",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "created_by: _",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "submissions",
+            "name": "created_by"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "29e7f5c5c264ca6c0f5946fb30918422243cdff6a1199514e70e2647a8f4a48e"
+}

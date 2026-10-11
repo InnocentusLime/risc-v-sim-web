@@ -29,10 +29,6 @@ struct Args {
     #[arg(long, default_value = "submission")]
     submissions_folder: PathBuf,
 
-    /// name of database
-    #[arg(long, default_value_t = String::from("riscv_sim"))]
-    db_name: String,
-
     #[cfg(feature = "jwt_authorization")]
     #[command(flatten)]
     jwt_authorization: risc_v_sim_web::auth::jwt_authorization::AuthArgs,
@@ -56,9 +52,6 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    let mongo_uri =
-        std::env::var("MONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
-
     risc_v_sim_web::run(
         tracing::info_span!("rvsim-web"),
         listener,
@@ -69,8 +62,6 @@ async fn main() -> anyhow::Result<()> {
             submissions_folder: args.submissions_folder,
             ticks_max: args.ticks_max,
             codesize_max: args.codesize_max,
-            mongo_uri,
-            db_name: args.db_name,
 
             #[cfg(feature = "jwt_authorization")]
             jwt_authorization: risc_v_sim_web::auth::jwt_authorization::AuthConfig::from_flags(
