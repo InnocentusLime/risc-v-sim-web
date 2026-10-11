@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use tokio::fs;
 use tracing::instrument;
 
-use crate::database::{DbClient, SubmissionStatus};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
@@ -14,6 +13,9 @@ use tokio::process::Command;
 use tokio::sync::mpsc::Receiver;
 use tokio::time::timeout;
 use ulid::{ULID_LEN, Ulid};
+
+use crate::db::DbClient;
+use crate::model::SubmissionStatus;
 
 pub fn submission_file(submissions_folder: &Path, ulid: Ulid) -> PathBuf {
     submission_dir(submissions_folder, ulid).join("trace.json")
@@ -33,8 +35,8 @@ pub fn submission_dir(submissions_folder: &Path, ulid: Ulid) -> PathBuf {
 pub struct SubmissionTask {
     pub source_code: Bytes,
     pub ticks: u32,
-    pub ulid: Ulid,
-    pub user_id: i64,
+    pub task_id: Ulid,
+    pub user_id: Ulid,
 }
 
 pub struct SubmissionActor {
@@ -74,7 +76,7 @@ impl SubmissionActor {
     #[instrument(name = "submission_actor", skip(self))]
     pub async fn run(mut self) {
         while let Some(task) = self.tasks.recv().await {
-            let ulid = task.ulid;
+            let ulid = task.task_id;
             tracing::debug!(ulid=%ulid, "Received task");
             let run = SubmissionTaskRun {
                 task,
@@ -91,46 +93,50 @@ struct SubmissionTaskRun {
 }
 
 impl SubmissionTaskRun {
-    #[instrument(name = "submission_task", skip(self), fields(ulid=%self.task.ulid))]
+    #[instrument(name = "submission_task", skip(self), fields(ulid=%self.task.task_id))]
     async fn run(self) {
         let SubmissionTaskRun { task, internal } = self;
 
-        let sub_dir = submission_dir(&internal.submissions_folder, task.ulid);
+        let sub_dir = submission_dir(&internal.submissions_folder, task.task_id);
         if let Err(err) = fs::create_dir_all(&sub_dir).await {
             tracing::error!("Can't create submission_dir: {err:#}");
             return;
         }
 
-        internal
+        let res = internal
             .db_client
-            .update_submission_status(task.ulid, SubmissionStatus::InProgress)
+            .set_submission_status(task.task_id, SubmissionStatus::Running)
             .await;
+        if let Err(err) = res {
+            tracing::error!("Can't update submission state: {err:#}");
+            return;
+        }
 
-        let trace_file = submission_file(&internal.submissions_folder, task.ulid);
+        let trace_file = submission_file(&internal.submissions_folder, task.task_id);
         let trace_file = trace_file.as_path();
         let sim_res = simulate(
             &internal,
-            task.ulid,
+            task.task_id,
             task.source_code.clone(),
             task.ticks,
             trace_file,
         )
         .await;
 
-        let final_status = match sim_res {
-            Ok(()) => SubmissionStatus::Completed,
-            Err(e) => {
-                tracing::error!("simulation failed: {e:#}");
-                SubmissionStatus::Completed
-            }
+        if let Err(e) = sim_res {
+            tracing::error!("simulation failed: {e:#}");
         };
 
-        internal
+        let res = internal
             .db_client
-            .update_submission_status(task.ulid, final_status)
+            .set_submission_status(task.task_id, SubmissionStatus::Complete)
             .await;
+        if let Err(err) = res {
+            tracing::error!("Can't update submission state: {err:#}");
+            return;
+        }
 
-        tracing::info!(status=?final_status, "Complete");
+        tracing::info!("Complete");
     }
 }
 

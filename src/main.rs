@@ -1,3 +1,4 @@
+use anyhow::Context;
 use clap::Parser;
 use std::{
     net::{Ipv4Addr, SocketAddrV4},
@@ -56,8 +57,7 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    let mongo_uri =
-        std::env::var("MONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
+    let db_url = std::env::var("DB_URL").context("no db url")?;
 
     risc_v_sim_web::run(
         tracing::info_span!("rvsim-web"),
@@ -69,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
             submissions_folder: args.submissions_folder,
             ticks_max: args.ticks_max,
             codesize_max: args.codesize_max,
-            mongo_uri,
+            db_url,
             db_name: args.db_name,
 
             #[cfg(feature = "jwt_authorization")]

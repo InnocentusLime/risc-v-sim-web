@@ -138,8 +138,17 @@ pub async fn oauth_callback_handler(
         tracing::error!("Failed to parse GitHub user response: {err:#}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+
+    // TODO: do not unwrap!
+    let assoc = state
+        .db
+        .get_github_association(github_user.id)
+        .await
+        .unwrap()
+        .unwrap();
+
     let user = User {
-        id: github_user.id,
+        id: assoc.user_id.0,
         login: github_user.login,
         name: github_user.name,
     };

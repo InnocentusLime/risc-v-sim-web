@@ -1,17 +1,21 @@
 pub mod api;
 pub mod auth;
-pub mod database;
+pub mod db;
+pub mod model;
 pub mod submission_actor;
 
+use anyhow::Context;
 use axum::{Router, body::Body, http::Request, middleware, routing::get};
+use sqlx::ConnectOptions;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc::Sender;
 use tokio::{join, net::TcpListener};
 use tower::ServiceBuilder;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 
-use crate::database::DbClient;
+use crate::db::DbClient;
 use crate::submission_actor::SubmissionActor;
 use auth::auth_middleware;
 use submission_actor::SubmissionTask;
@@ -33,7 +37,7 @@ pub struct Config {
 
     /* Db configuration */
     /// URI of the mongo server.
-    pub mongo_uri: String,
+    pub db_url: String,
     /// Mongo database name.
     pub db_name: String,
 
@@ -67,8 +71,23 @@ pub async fn run(
     listener: TcpListener,
     cfg: Config,
 ) -> anyhow::Result<()> {
+    let conn_fut = sqlx::PgPool::connect_with(
+        sqlx::postgres::PgConnectOptions::new_without_pgpass()
+            .host("postgres")
+            .port(5432)
+            .username("postgres")
+            .database("postgres")
+            .log_statements(log::LevelFilter::Debug),
+    );
+    let conn = tokio::time::timeout(Duration::from_secs(5), conn_fut)
+        .await
+        .map_err(anyhow::Error::from)
+        .map(|x| x.map_err(anyhow::Error::from))
+        .flatten()
+        .context("Connect to DB")?;
+
     let (task_send, task_recv) = tokio::sync::mpsc::channel::<SubmissionTask>(100);
-    let db_client = DbClient::new(&cfg.mongo_uri, &cfg.db_name).await?;
+    let db_client = DbClient::new(conn).await;
 
     let state = Arc::new(AppState {
         db: Arc::new(db_client),

@@ -19,7 +19,7 @@ use ulid::Ulid;
 
 use crate::AppState;
 use crate::auth::User;
-use crate::database::SubmissionRecord;
+use crate::model::Submission;
 use crate::submission_actor::{SubmissionTask, source_file, submission_file};
 
 pub fn api_routes() -> Router<Arc<AppState>> {
@@ -93,17 +93,14 @@ async fn me_handler(Extension(user): Extension<User>) -> Json<User> {
 async fn get_submission_handler(
     State(state): State<Arc<AppState>>,
     Path(ulid): Path<Ulid>,
-) -> ApiResult<SubmissionRecord> {
-    let record = state
+) -> ApiResult<Submission> {
+    state
         .db
-        .get_submission_by_uuid(ulid)
+        .get_submission(ulid)
         .await
-        .context("fetch")?;
-
-    match record {
-        Some(r) => Ok(Json(r)),
-        None => Err(ApiError::SubmissionNotFound(ulid)),
-    }
+        .context("fetch")?
+        .ok_or(ApiError::SubmissionNotFound(ulid))
+        .map(Json)
 }
 
 async fn create_submission_handler(
@@ -111,7 +108,7 @@ async fn create_submission_handler(
     Extension(user): Extension<User>,
     multipart: Multipart,
 ) -> ApiResult<CreateSubmissionResponse> {
-    let ulid = Ulid::new();
+    let task_id = Ulid::new();
     let user_id = user.id;
     let user_login = user.login;
 
@@ -120,16 +117,16 @@ async fn create_submission_handler(
         .context("parse")
         .map_err(ApiError::BadRequest)?;
     tracing::debug!(
-        user_id=user_id,
+        user_id=%user_id,
         user_login=user_login,
-        submission_id=%ulid,
+        submission_id=%task_id,
         size=source_code.len(),
         "New submission",
     );
 
     state
         .db
-        .create_submission_with_user(ulid, user_id)
+        .create_submission(task_id, user_id)
         .await
         .context("create submission")?;
     state
@@ -137,18 +134,18 @@ async fn create_submission_handler(
         .send(SubmissionTask {
             source_code,
             ticks,
-            ulid,
+            task_id,
             user_id,
         })
         .await
         .context("send task")?;
 
-    Ok(Json(CreateSubmissionResponse { ulid }))
+    Ok(Json(CreateSubmissionResponse { task_id }))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateSubmissionResponse {
-    pub ulid: Ulid,
+    pub task_id: Ulid,
 }
 
 async fn parse_submit_inputs(
@@ -202,7 +199,15 @@ async fn list_submissions_handler(
     Ok(Json(UserSubmissionsResponse { submissions }))
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub struct UserSubmissionsResponse {
-    pub submissions: Vec<SubmissionRecord>,
+    pub submissions: Vec<Submission>,
+}
+
+#[derive(Clone, Copy)]
+pub enum SubmissionStatus {
+    Draft,
+    Queued,
+    Running,
+    Complete,
 }

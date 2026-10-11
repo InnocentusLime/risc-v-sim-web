@@ -9,6 +9,7 @@ use jsonwebtoken::{Validation, decode};
 use serde::{Deserialize, Serialize};
 use time::{Duration, UtcDateTime};
 use tokio::fs;
+use ulid::Ulid;
 
 use crate::AppState;
 use crate::api::ApiError;
@@ -100,7 +101,7 @@ pub fn get_user(
 
     match claims_result {
         Ok(token_data) => Ok(User {
-            id: token_data.claims.sub.parse().unwrap_or(0),
+            id: Ulid::from_string(&token_data.claims.sub).unwrap_or(Ulid::nil()),
             login: token_data.claims.login,
             name: token_data.claims.name,
         }),
