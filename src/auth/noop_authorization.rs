@@ -1,5 +1,6 @@
 use axum::extract::Request;
 use axum_extra::extract::CookieJar;
+use ulid::Ulid;
 
 use crate::AppState;
 use crate::api::ApiError;
@@ -22,7 +23,7 @@ pub fn get_user(
     }
 
     Ok(User {
-        id: 0,
+        id: Ulid::nil(),
         login: "admin".to_string(),
         name: None,
     })

@@ -16,7 +16,7 @@ const CONCURRENCY: usize = 5;
 
 #[derive(serde::Deserialize)]
 struct SubmitResponse {
-    pub ulid: Ulid,
+    pub id: Ulid,
 }
 
 #[derive(serde::Deserialize)]
@@ -156,21 +156,19 @@ async fn make_submission_and_wait_for_success(port: u16, source_file: impl AsRef
     let submit_status = submit_response.status();
     assert_eq!(submit_status, reqwest::StatusCode::OK);
     let submit_response = parse_response_json::<SubmitResponse>(submit_response).await;
-    info!("Got submission id: {}", submit_response.ulid);
+    info!("Got submission id: {}", submit_response.id);
 
     let timeout = Duration::from_secs_f32(WAIT_TIMEOUT);
-    let submission_response = tokio::time::timeout(
-        timeout,
-        wait_submission(&client, port, submit_response.ulid),
-    )
-    .await
-    .unwrap();
+    let submission_response =
+        tokio::time::timeout(timeout, wait_submission(&client, port, submit_response.id))
+            .await
+            .unwrap();
     let dur = Instant::now().duration_since(start);
     info!("Waited for {:.2} seconds", dur.as_secs_f32());
 
     let submission_response = parse_response_json::<SubmissionResponse>(submission_response).await;
 
-    let source_response = get_submission_source(&client, port, submit_response.ulid).await;
+    let source_response = get_submission_source(&client, port, submit_response.id).await;
     assert_eq!(source_response.status(), reqwest::StatusCode::OK);
     let source_text = source_response.text().await.unwrap();
     assert_eq!(source_text, original_code);

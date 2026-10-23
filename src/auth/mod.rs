@@ -26,7 +26,7 @@ use crate::{AppState, api::ApiError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
-    pub id: i64,
+    pub id: ulid::Ulid,
     pub login: String,
     pub name: Option<String>,
 }

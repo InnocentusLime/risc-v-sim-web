@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE submissions\n            SET status = $2\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "submission_status",
+            "kind": {
+              "Enum": [
+                "draft",
+                "queued",
+                "running",
+                "complete"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2cafe8e82f13cbc609ea4d5857c864a218676961cc7432a794cfa767c08c810a"
+}

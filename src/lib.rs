@@ -1,17 +1,22 @@
 pub mod api;
 pub mod auth;
-pub mod database;
+pub mod db;
+pub mod model;
 pub mod submission_actor;
 
+use anyhow::Context;
 use axum::{Router, body::Body, http::Request, middleware, routing::get};
+use sqlx::ConnectOptions;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::Mutex;
 use tokio::sync::mpsc::Sender;
 use tokio::{join, net::TcpListener};
 use tower::ServiceBuilder;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 
-use crate::database::DbClient;
+use crate::db::DbClient;
 use crate::submission_actor::SubmissionActor;
 use auth::auth_middleware;
 use submission_actor::SubmissionTask;
@@ -30,12 +35,6 @@ pub struct Config {
     pub ticks_max: u32,
     /// Max size of the upload in bytes.
     pub codesize_max: u32,
-
-    /* Db configuration */
-    /// URI of the mongo server.
-    pub mongo_uri: String,
-    /// Mongo database name.
-    pub db_name: String,
 
     #[cfg(feature = "github_authentication")]
     pub github_authentication: auth::github_authentication::AuthConfig,
@@ -62,13 +61,37 @@ pub async fn health_handler() -> &'static str {
     "Ok"
 }
 
+// TODO: remove
+pub static INIT_USR: Mutex<bool> = Mutex::const_new(false);
+
 pub async fn run(
     root_span: tracing::Span,
     listener: TcpListener,
     cfg: Config,
 ) -> anyhow::Result<()> {
+    let conn_fut = sqlx::PgPool::connect_with(
+        sqlx::postgres::PgConnectOptions::new_without_pgpass()
+            .log_statements(log::LevelFilter::Debug),
+    );
+    let conn = tokio::time::timeout(Duration::from_secs(5), conn_fut)
+        .await
+        .map_err(anyhow::Error::from)
+        .map(|x| x.map_err(anyhow::Error::from))
+        .flatten()
+        .context("Connect to DB")?;
+
     let (task_send, task_recv) = tokio::sync::mpsc::channel::<SubmissionTask>(100);
-    let db_client = DbClient::new(&cfg.mongo_uri, &cfg.db_name).await?;
+    let db_client = DbClient::new(conn).await;
+
+    // TODO: remove
+    let mut g = INIT_USR.lock().await;
+    if !*g {
+        *g = true;
+        db_client
+            .create_user(ulid::Ulid::nil(), "test")
+            .await
+            .context("create test user")?;
+    }
 
     let state = Arc::new(AppState {
         db: Arc::new(db_client),

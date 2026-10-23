@@ -6,9 +6,6 @@ use tokio::{net::TcpListener, task::JoinHandle};
 use tracing::{Instrument, Level, Span, info};
 use ulid::Ulid;
 
-pub const TEST_MONGO_URI: &'static str = "mongodb://mongodb:27017";
-pub const TEST_DB_NAME: &'static str = "riscv_sim";
-
 #[allow(dead_code)]
 pub async fn run_test<Patch, Body, F>(test_name: &str, patch_cfg: Patch, body: Body)
 where
@@ -41,13 +38,16 @@ pub fn init_test() {
 /// The function returns a JoinHandle. For quick and clean test termination,
 /// make sure to [`JoinHandle::abort()`] the returned future.
 #[allow(dead_code)]
-pub async fn spawn_server(
-    span: &Span,
-    cfg: risc_v_sim_web::Config,
-) -> (u16, JoinHandle<anyhow::Result<()>>) {
+pub async fn spawn_server(span: &Span, cfg: risc_v_sim_web::Config) -> (u16, JoinHandle<()>) {
     let (port, listener) = make_listener().instrument(span.clone()).await;
-    let task = tokio::spawn(risc_v_sim_web::run(span.clone(), listener, cfg));
+    let task = tokio::spawn(run_server(span.clone(), listener, cfg));
     (port, task)
+}
+
+async fn run_server(span: Span, listener: TcpListener, cfg: risc_v_sim_web::Config) {
+    if let Err(e) = risc_v_sim_web::run(span.clone(), listener, cfg).await {
+        tracing::error!("server failed to start: {e:#}")
+    }
 }
 
 #[allow(dead_code)]
@@ -72,8 +72,6 @@ pub async fn default_config(test_name: &str) -> risc_v_sim_web::Config {
         submissions_folder: format!("submissions-{test_name}").into(),
         ticks_max: 15,
         codesize_max: 256,
-        mongo_uri: TEST_MONGO_URI.to_string(),
-        db_name: TEST_DB_NAME.to_string(),
 
         #[cfg(feature = "jwt_authorization")]
         #[allow(unreachable_code)]

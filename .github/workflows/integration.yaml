@@ -6,7 +6,7 @@ env:
   RUSTFLAGS: "-D warnings"
   RUSTDOCFLAGS: "-D warnings"
   RUST_BACKTRACE: "1"
-  RUST_VERSION: "1.89.0"
+  RUST_VERSION: "1.98.1"
 
 jobs:
   capture-traces:
@@ -42,19 +42,18 @@ jobs:
     container: krinkin/rv64-toolchain
     needs: [capture-traces]
     services:
-      mongodb:
-        image: mongo:7
+      postgres:
+        image: postgres:18
         env:
-          MONGO_INITDB_DATABASE: riscv_sim_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: postgres
         ports:
-          - 27017:27017
+          - 5432:5432 
         options: >-
-          --health-cmd "echo 'db.runCommand(\"ping\").ok' | mongosh localhost:27017/test --quiet"
+          --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-    env:
-      MONGODB_DB: riscv_sim_test
     steps:
       # Required by the openssl crate
       # https://docs.rs/openssl/latest/openssl/#automatic
@@ -78,7 +77,7 @@ jobs:
             target/
           key: ci-integration-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ci-integration-cargo-
-      - name: Download Rust toolchain and build
+      - name: Download Rust toolchain, postgres and build
         if: steps.cache-build.outputs.cache-hit != 'true'
         run: |
           apt-get update
@@ -86,6 +85,12 @@ jobs:
           curl -O https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init
           chmod +x rustup-init
           ./rustup-init -y --no-modify-path --default-toolchain $RUST_VERSION
+          export PATH=~/.cargo/bin:$PATH
+          cargo install sqlx-cli --no-default-features --features native-tls,postgres && true
+      - name: Prepare the database
+        run: |
+          export PATH=~/.cargo/bin:$PATH
+          sqlx migrate run -D postgres://postgres@postgres:5432
       - name: Build RiscV sim
         run: |
           export PATH=~/.cargo/bin:$PATH
@@ -99,4 +104,8 @@ jobs:
       - name: Run integration tests
         run: |
           export PATH=~/.cargo/bin:$PATH
+          export PGPORT=5432
+          export PGHOST=postgres
+          export PGUSER=postgres
+          export PGDATABASE=postgres
           cargo test --test "*" --locked --features noop_authorization -- --show-output
