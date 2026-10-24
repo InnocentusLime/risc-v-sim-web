@@ -65,6 +65,7 @@ async fn make_listener() -> (u16, TcpListener) {
 
 #[allow(dead_code)]
 pub async fn default_config(test_name: &str) -> risc_v_sim_web::Config {
+    #[allow(unreachable_code)]
     risc_v_sim_web::Config {
         as_binary: "riscv64-linux-gnu-as".into(),
         ld_binary: "riscv64-linux-gnu-ld".into(),
@@ -73,14 +74,35 @@ pub async fn default_config(test_name: &str) -> risc_v_sim_web::Config {
         ticks_max: 15,
         codesize_max: 256,
 
-        #[cfg(feature = "jwt_authorization")]
-        #[allow(unreachable_code)]
-        jwt_authorization: panic!("Don't run tests with jwt authorization"),
-
         #[cfg(feature = "github_authentication")]
-        #[allow(unreachable_code)]
         github_authentication: panic!("Don't run tests with github authentication"),
     }
+}
+
+pub fn new_client() -> reqwest::Client {
+    reqwest::ClientBuilder::new()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap()
+}
+
+#[allow(dead_code)]
+pub fn get_cookie(r: &reqwest::Response) -> reqwest::cookie::Cookie<'_> {
+    tracing::info!("login resp: {:?}", r.headers());
+    assert_eq!(r.status(), reqwest::StatusCode::SEE_OTHER);
+    let mut cookies = r.cookies();
+    let cookie = cookies.next().unwrap();
+    assert!(cookies.next().is_none());
+
+    cookie
+}
+
+#[allow(dead_code)]
+pub async fn login(client: &Client, port: u16) -> reqwest::Response {
+    let me = ulid::Ulid::new();
+    let mut request_url = server_url(port).join("auth/noop/register").unwrap();
+    request_url.set_query(Some(&format!("id={}", me)));
+    client.post(request_url).send().await.unwrap()
 }
 
 #[allow(dead_code)]
@@ -89,6 +111,7 @@ pub async fn submit_program(
     port: u16,
     ticks: u32,
     path: impl AsRef<Path>,
+    cookie: &reqwest::cookie::Cookie<'_>,
 ) -> Response {
     let request_url = server_url(port).join("api/submission").unwrap();
     let form = reqwest::multipart::Form::new()
@@ -98,7 +121,10 @@ pub async fn submit_program(
         .unwrap();
     client
         .post(request_url)
-        .header("authorization", risc_v_sim_web::auth::ADMIN_TOKEN)
+        .header(
+            reqwest::header::COOKIE,
+            format!("{}={}", cookie.name(), cookie.value()),
+        )
         .multipart(form)
         .send()
         .await
@@ -106,26 +132,42 @@ pub async fn submit_program(
 }
 
 #[allow(dead_code)]
-pub async fn get_submission(client: &Client, port: u16, submission_id: Ulid) -> Response {
+pub async fn get_submission(
+    client: &Client,
+    port: u16,
+    submission_id: Ulid,
+    cookie: &reqwest::cookie::Cookie<'_>,
+) -> Response {
     let request_url = server_url(port)
         .join(&format!("api/submission/{submission_id}/trace"))
         .unwrap();
     client
         .get(request_url)
-        .header("authorization", risc_v_sim_web::auth::ADMIN_TOKEN)
+        .header(
+            reqwest::header::COOKIE,
+            format!("{}={}", cookie.name(), cookie.value()),
+        )
         .send()
         .await
         .unwrap()
 }
 
 #[allow(dead_code)]
-pub async fn get_submission_source(client: &Client, port: u16, submission_id: Ulid) -> Response {
+pub async fn get_submission_source(
+    client: &Client,
+    port: u16,
+    submission_id: Ulid,
+    cookie: reqwest::cookie::Cookie<'_>,
+) -> Response {
     let request_url = server_url(port)
         .join(&format!("api/submission/{submission_id}/source"))
         .unwrap();
     client
         .get(request_url)
-        .header("authorization", risc_v_sim_web::auth::ADMIN_TOKEN)
+        .header(
+            reqwest::header::COOKIE,
+            format!("{}={}", cookie.name(), cookie.value()),
+        )
         .send()
         .await
         .unwrap()

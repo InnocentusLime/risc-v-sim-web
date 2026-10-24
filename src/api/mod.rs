@@ -1,6 +1,7 @@
 mod error;
 
 pub use error::*;
+use tracing::instrument;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -12,7 +13,7 @@ use axum::extract::{Multipart, Path, State};
 use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::{Extension, Json, Router};
+use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use tokio_util::io::ReaderStream;
 use ulid::Ulid;
@@ -37,12 +38,14 @@ pub fn api_routes() -> Router<Arc<AppState>> {
             "/submission/{ulid}/source",
             get(get_submission_source_handler),
         )
-        .route("/me", get(me_handler))
+    // .route("/me", get(me_handler))
 }
 
+#[instrument(skip_all, fields(user=%user.id()))]
 async fn get_submission_trace_handler(
     State(state): State<Arc<AppState>>,
     Path(ulid): Path<Ulid>,
+    user: User,
 ) -> Response {
     let fut = open_file(
         submission_file(&state.submissions_folder, ulid),
@@ -55,9 +58,11 @@ async fn get_submission_trace_handler(
     }
 }
 
+#[instrument(skip_all, fields(user=%user.id()))]
 async fn get_submission_source_handler(
     State(state): State<Arc<AppState>>,
     Path(ulid): Path<Ulid>,
+    user: User,
 ) -> Response {
     let fut = open_file(
         source_file(&state.submissions_folder, ulid),
@@ -86,13 +91,15 @@ fn serve_file(file: tokio::fs::File, content_type: &'static str) -> Response {
     res
 }
 
-async fn me_handler(Extension(user): Extension<User>) -> Json<User> {
-    Json(user)
-}
+// async fn me_handler(Extension(user): Extension<User>) -> Json<User> {
+//     Json(user)
+// }
 
+#[instrument(skip_all, fields(user=%user.id()))]
 async fn get_submission_handler(
     State(state): State<Arc<AppState>>,
     Path(ulid): Path<Ulid>,
+    user: User,
 ) -> ApiResult<Submission> {
     state
         .db
@@ -103,22 +110,20 @@ async fn get_submission_handler(
         .map(Json)
 }
 
+#[instrument(skip_all, fields(user=%user.id()))]
 async fn create_submission_handler(
     State(state): State<Arc<AppState>>,
-    Extension(user): Extension<User>,
+    user: User,
     multipart: Multipart,
 ) -> ApiResult<CreateSubmissionResponse> {
     let id = Ulid::new();
-    let user_id = user.id;
-    let user_login = user.login;
+    let user_id = user.id();
 
     let (ticks, source_code) = parse_submit_inputs(multipart, state.as_ref())
         .await
         .context("parse")
         .map_err(ApiError::BadRequest)?;
     tracing::debug!(
-        user_id=%user_id,
-        user_login=user_login,
         submission_id=%id,
         size=source_code.len(),
         "New submission",
@@ -186,13 +191,14 @@ async fn ticks_from_field(field: Field<'_>) -> anyhow::Result<u32> {
     Ok(ticks_str.parse()?)
 }
 
+#[instrument(skip_all, fields(user=%user.id()))]
 async fn list_submissions_handler(
     State(state): State<Arc<AppState>>,
-    Extension(user): Extension<User>,
+    user: User,
 ) -> ApiResult<UserSubmissionsResponse> {
     let submissions = state
         .db
-        .get_user_submissions(user.id)
+        .get_user_submissions(user.id())
         .await
         .context("fetch")?;
 
