@@ -99,8 +99,9 @@ pub fn get_cookie(r: &reqwest::Response) -> reqwest::cookie::Cookie<'_> {
 
 #[allow(dead_code)]
 pub async fn login(client: &Client, port: u16) -> reqwest::Response {
-    let mut request_url = server_url(port).join("auth/noop/login").unwrap();
-    request_url.set_query(Some("id=00000000000000000000000000"));
+    let me = ulid::Ulid::new();
+    let mut request_url = server_url(port).join("auth/noop/register").unwrap();
+    request_url.set_query(Some(&format!("id={}", me)));
     client.post(request_url).send().await.unwrap()
 }
 

@@ -10,7 +10,6 @@ use sqlx::ConnectOptions;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex;
 use tokio::sync::mpsc::Sender;
 use tokio::{join, net::TcpListener};
 use tower::ServiceBuilder;
@@ -55,9 +54,6 @@ pub async fn health_handler() -> &'static str {
     "Ok"
 }
 
-// TODO: remove
-pub static INIT_USR: Mutex<bool> = Mutex::const_new(false);
-
 pub async fn run(
     root_span: tracing::Span,
     listener: TcpListener,
@@ -76,16 +72,6 @@ pub async fn run(
 
     let (task_send, task_recv) = tokio::sync::mpsc::channel::<SubmissionTask>(100);
     let db_client = DbClient::new(conn).await;
-
-    // TODO: remove
-    let mut g = INIT_USR.lock().await;
-    if !*g {
-        *g = true;
-        db_client
-            .create_user(ulid::Ulid::nil(), "test")
-            .await
-            .context("create test user")?;
-    }
 
     let state = Arc::new(AppState {
         db: Arc::new(db_client),
