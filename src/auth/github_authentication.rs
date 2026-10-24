@@ -6,7 +6,6 @@ use axum::{
     response::Redirect,
     routing::{get, post},
 };
-use axum_extra::extract::CookieJar;
 use clap::Args;
 use oauth2::{AuthorizationCode, CsrfToken, Scope, TokenResponse, reqwest::async_http_client};
 use serde::Deserialize;
@@ -102,9 +101,9 @@ pub struct AuthQuery {
 
 pub async fn oauth_callback_handler(
     State(state): State<Arc<AppState>>,
+    mut user: User,
     Query(query): Query<AuthQuery>,
-    jar: CookieJar,
-) -> Result<(CookieJar, Redirect), StatusCode> {
+) -> Result<Redirect, StatusCode> {
     let gh_auth_state = &state.github_authentication;
     let code = AuthorizationCode::new(query.code.clone());
 
@@ -147,30 +146,15 @@ pub async fn oauth_callback_handler(
         .unwrap()
         .unwrap();
 
-    let user = User {
-        id: assoc.user_id.0,
-        login: github_user.login,
-        name: github_user.name,
-    };
-
-    let jwt_res =
-        super::jwt_authorization::new_jwt_cookie_from_user(&state.jwt_authorization, &user);
-    let cookie = match jwt_res {
-        Ok(cookie) => cookie,
-        Err(err) => {
-            tracing::error!("failed to sign a token for noop login: {err:#}");
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        }
-    };
-
+    user.set_user_id(assoc.user_id.0).await;
     tracing::info!(
-        "Authorized Github user: id={}, login={}, name={:?}",
-        user.id,
-        user.login,
-        user.name
+        "Authorized user with GitHub: id={}, login={}, name={:?}",
+        assoc.user_id.0,
+        github_user.login,
+        github_user.name,
     );
 
-    Ok((jar.add(cookie), Redirect::to("/")))
+    Ok(Redirect::to("/"))
 }
 
 #[derive(Deserialize)]

@@ -1,39 +1,18 @@
 #[cfg(feature = "github_authentication")]
 pub mod github_authentication;
-#[cfg(feature = "jwt_authorization")]
-pub mod jwt_authorization;
 #[cfg(feature = "noop_authentication")]
 pub mod noop_authentication;
-#[cfg(feature = "noop_authorization")]
-pub mod noop_authorization;
 
-#[cfg(feature = "noop_authorization")]
-pub use noop_authorization::ADMIN_TOKEN;
-
-use axum::{
-    Router,
-    extract::{Request, State},
-    middleware::Next,
-    response::{IntoResponse, Redirect, Response},
-    routing::post,
-};
-use axum_extra::extract::CookieJar;
-use axum_extra::extract::cookie::Cookie;
+use axum::{Router, extract::FromRequestParts, http::request::Parts};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
+use tower_sessions::Session;
 
-use crate::{AppState, api::ApiError};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct User {
-    pub id: ulid::Ulid,
-    pub login: String,
-    pub name: Option<String>,
-}
+use crate::AppState;
 
 pub fn auth_routes() -> Router<Arc<AppState>> {
     #[allow(unused_mut)]
-    let mut res = Router::new().route("/logout", post(logout_handler));
+    let mut res = Router::new();
 
     #[cfg(feature = "noop_authentication")]
     {
@@ -48,43 +27,68 @@ pub fn auth_routes() -> Router<Arc<AppState>> {
     res
 }
 
-pub async fn auth_middleware(
-    State(state): State<Arc<AppState>>,
-    cookie_jar: CookieJar,
-    mut request: Request<axum::body::Body>,
-    next: Next,
-) -> Response {
-    let path = request.uri().path();
-    let to_try: [fn(&AppState, &CookieJar, &Request) -> Result<User, ApiError>; _] = [
-        #[cfg(feature = "jwt_authorization")]
-        jwt_authorization::get_user,
-        #[cfg(feature = "noop_authorization")]
-        noop_authorization::get_user,
-    ];
-
-    for auth_option in to_try {
-        let res = auth_option(&state, &cookie_jar, &request);
-        match res {
-            Ok(user) => {
-                request.extensions_mut().insert(user);
-                return next.run(request).await;
-            }
-            Err(e) if matches!(e, ApiError::Unauthorized) => continue,
-            Err(e) => {
-                tracing::debug!(path = path, "Unauthorized access");
-                return e.into_response();
-            }
-        }
-    }
-
-    return ApiError::Unauthorized.into_response();
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserData {
+    pub id: ulid::Ulid,
 }
 
-pub async fn logout_handler() -> (CookieJar, Redirect) {
-    let mut cookie = Cookie::new("jwt", "");
-    cookie.set_path("/");
-    cookie.make_removal();
+impl Default for UserData {
+    fn default() -> Self {
+        Self {
+            id: ulid::Ulid::nil(),
+        }
+    }
+}
 
-    let jar = CookieJar::new();
-    (jar.add(cookie), Redirect::to("/"))
+pub struct User {
+    session: Session,
+    user_data: UserData,
+}
+
+impl User {
+    const GUEST_DATA_KEY: &'static str = "user.data";
+
+    pub fn id(&self) -> ulid::Ulid {
+        self.user_data.id
+    }
+
+    #[allow(dead_code)]
+    async fn set_user_id(&mut self, id: ulid::Ulid) {
+        self.user_data.id = id;
+        Self::update_session(&self.session, &self.user_data).await
+    }
+
+    async fn update_session(session: &Session, guest_data: &UserData) {
+        session
+            .insert(Self::GUEST_DATA_KEY, guest_data.clone())
+            .await
+            .unwrap()
+    }
+}
+
+impl fmt::Display for User {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("User").field("id", &self.id()).finish()
+    }
+}
+
+impl<S> FromRequestParts<S> for User
+where
+    S: Send + Sync,
+{
+    type Rejection = (axum::http::StatusCode, &'static str);
+
+    async fn from_request_parts(req: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let session = Session::from_request_parts(req, state).await?;
+
+        let user_data: UserData = session
+            .get(Self::GUEST_DATA_KEY)
+            .await
+            .unwrap()
+            .unwrap_or_default();
+
+        Self::update_session(&session, &user_data).await;
+
+        Ok(Self { session, user_data })
+    }
 }

@@ -29,10 +29,6 @@ struct Args {
     #[arg(long, default_value = "submission")]
     submissions_folder: PathBuf,
 
-    #[cfg(feature = "jwt_authorization")]
-    #[command(flatten)]
-    jwt_authorization: risc_v_sim_web::auth::jwt_authorization::AuthArgs,
-
     #[cfg(feature = "github_authentication")]
     #[command(flatten)]
     github_authentication: risc_v_sim_web::auth::github_authentication::AuthArgs,
@@ -62,11 +58,6 @@ async fn main() -> anyhow::Result<()> {
             submissions_folder: args.submissions_folder,
             ticks_max: args.ticks_max,
             codesize_max: args.codesize_max,
-
-            #[cfg(feature = "jwt_authorization")]
-            jwt_authorization: risc_v_sim_web::auth::jwt_authorization::AuthConfig::from_flags(
-                args.jwt_authorization,
-            ),
 
             #[cfg(feature = "github_authentication")]
             github_authentication:

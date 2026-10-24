@@ -86,7 +86,7 @@ jobs:
           chmod +x rustup-init
           ./rustup-init -y --no-modify-path --default-toolchain $RUST_VERSION
           export PATH=~/.cargo/bin:$PATH
-          cargo install sqlx-cli --no-default-features --features native-tls,postgres && true
+          cargo install sqlx-cli --no-default-features --features native-tls,postgres || true
       - name: Prepare the database
         run: |
           export PATH=~/.cargo/bin:$PATH
@@ -108,4 +108,4 @@ jobs:
           export PGHOST=postgres
           export PGUSER=postgres
           export PGDATABASE=postgres
-          cargo test --test "*" --locked --features noop_authorization -- --show-output
+          cargo test --test "*" --locked --features noop_authentication -- --show-output

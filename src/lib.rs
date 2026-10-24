@@ -5,7 +5,7 @@ pub mod model;
 pub mod submission_actor;
 
 use anyhow::Context;
-use axum::{Router, body::Body, http::Request, middleware, routing::get};
+use axum::{Router, body::Body, http::Request, routing::get};
 use sqlx::ConnectOptions;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,10 +15,10 @@ use tokio::sync::mpsc::Sender;
 use tokio::{join, net::TcpListener};
 use tower::ServiceBuilder;
 use tower_http::{services::ServeDir, trace::TraceLayer};
+use tower_sessions::{MemoryStore, SessionManagerLayer};
 
 use crate::db::DbClient;
 use crate::submission_actor::SubmissionActor;
-use auth::auth_middleware;
 use submission_actor::SubmissionTask;
 
 pub struct Config {
@@ -38,9 +38,6 @@ pub struct Config {
 
     #[cfg(feature = "github_authentication")]
     pub github_authentication: auth::github_authentication::AuthConfig,
-
-    #[cfg(feature = "jwt_authorization")]
-    pub jwt_authorization: auth::jwt_authorization::AuthConfig,
 }
 
 pub struct AppState {
@@ -52,9 +49,6 @@ pub struct AppState {
 
     #[cfg(feature = "github_authentication")]
     pub github_authentication: auth::github_authentication::AuthState,
-
-    #[cfg(feature = "jwt_authorization")]
-    pub jwt_authorization: auth::jwt_authorization::AuthState,
 }
 
 pub async fn health_handler() -> &'static str {
@@ -104,9 +98,6 @@ pub async fn run(
         github_authentication: auth::github_authentication::AuthState::new(
             cfg.github_authentication,
         ),
-
-        #[cfg(feature = "jwt_authorization")]
-        jwt_authorization: auth::jwt_authorization::AuthState::load(cfg.jwt_authorization).await?,
     });
 
     let submission_actor = SubmissionActor::new(
@@ -118,20 +109,15 @@ pub async fn run(
         cfg.submissions_folder,
     );
 
+    let session_store = MemoryStore::default();
+    let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
     let router = Router::new()
-        .nest(
-            "/api",
-            api::api_routes()
-                .with_state(state.clone())
-                .layer(middleware::from_fn_with_state(
-                    state.clone(),
-                    auth_middleware,
-                )),
-        )
+        .nest("/api", api::api_routes().with_state(state.clone()))
         .nest("/auth", auth::auth_routes().with_state(state.clone()))
         .route("/health", get(health_handler))
         .fallback_service(ServeDir::new("static"))
         .layer(ServiceBuilder::new().layer(tower_http::cors::CorsLayer::permissive()))
+        .layer(session_layer)
         .layer(
             TraceLayer::new_for_http().make_span_with(move |request: &Request<Body>| {
                 tracing::debug_span!(

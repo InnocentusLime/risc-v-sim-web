@@ -30,9 +30,12 @@ async fn submit_simple() {
         "submit_simple",
         |_| {},
         async |port| {
-            let client = reqwest::Client::new();
+            let client = new_client();
+            let rlogin = login(&client, port).await;
+            let cookie = get_cookie(&rlogin);
+
             let submit_response =
-                submit_program(&client, port, 5, "riscv-samples/src/basic.s").await;
+                submit_program(&client, port, 5, "riscv-samples/src/basic.s", &cookie).await;
             let submit_status = submit_response.status();
             let resp_text = match submit_response.text().await {
                 Ok(x) => format!("Response as text: {x}"),
@@ -62,9 +65,12 @@ async fn submit_non_existent() {
         "submit_non_existent",
         |_| {},
         async |port| {
-            let client = reqwest::Client::new();
+            let client = new_client();
+            let rlogin = login(&client, port).await;
+            let cookie = get_cookie(&rlogin);
+
             let fake_submission_id = Ulid::new();
-            let response = get_submission(&client, port, fake_submission_id).await;
+            let response = get_submission(&client, port, fake_submission_id, &cookie).await;
             assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
         },
     )
@@ -97,8 +103,12 @@ async fn codesize_max_restriction() {
         "codesize_max_restriction",
         |_| {},
         async |port| {
-            let client = reqwest::Client::new();
-            let submit_response = submit_program(&client, port, 5, "riscv-samples/src/big.s").await;
+            let client = new_client();
+            let rlogin = login(&client, port).await;
+            let cookie = get_cookie(&rlogin);
+
+            let submit_response =
+                submit_program(&client, port, 5, "riscv-samples/src/big.s", &cookie).await;
             let submit_status = submit_response.status();
             let resp_text = match submit_response.text().await {
                 Ok(x) => format!("Response as text: {x}"),
@@ -120,9 +130,12 @@ async fn ticks_max_restriction() {
         "ticks_max_restriction",
         |_| {},
         async |port| {
-            let client = reqwest::Client::new();
+            let client = new_client();
+            let rlogin = login(&client, port).await;
+            let cookie = get_cookie(&rlogin);
+
             let submit_response =
-                submit_program(&client, port, 100, "riscv-samples/src/basic.s").await;
+                submit_program(&client, port, 100, "riscv-samples/src/basic.s", &cookie).await;
             let submit_status = submit_response.status();
             let resp_text = match submit_response.text().await {
                 Ok(x) => format!("Response as text: {x}"),
@@ -139,7 +152,9 @@ async fn ticks_max_restriction() {
 }
 
 async fn make_submission_and_wait_for_success(port: u16, source_file: impl AsRef<Path>) {
-    let client = reqwest::Client::new();
+    let client = new_client();
+    let rlogin = login(&client, port).await;
+    let cookie = get_cookie(&rlogin);
 
     let mut source_path = PathBuf::from_iter(["riscv-samples", "src"]);
     source_path.push(source_file.as_ref());
@@ -152,23 +167,25 @@ async fn make_submission_and_wait_for_success(port: u16, source_file: impl AsRef
 
     let start = Instant::now();
 
-    let submit_response = submit_program(&client, port, ticks, &source_path).await;
+    let submit_response = submit_program(&client, port, ticks, &source_path, &cookie).await;
     let submit_status = submit_response.status();
     assert_eq!(submit_status, reqwest::StatusCode::OK);
     let submit_response = parse_response_json::<SubmitResponse>(submit_response).await;
     info!("Got submission id: {}", submit_response.id);
 
     let timeout = Duration::from_secs_f32(WAIT_TIMEOUT);
-    let submission_response =
-        tokio::time::timeout(timeout, wait_submission(&client, port, submit_response.id))
-            .await
-            .unwrap();
+    let submission_response = tokio::time::timeout(
+        timeout,
+        wait_submission(&client, port, submit_response.id, &cookie),
+    )
+    .await
+    .unwrap();
     let dur = Instant::now().duration_since(start);
     info!("Waited for {:.2} seconds", dur.as_secs_f32());
 
     let submission_response = parse_response_json::<SubmissionResponse>(submission_response).await;
 
-    let source_response = get_submission_source(&client, port, submit_response.id).await;
+    let source_response = get_submission_source(&client, port, submit_response.id, cookie).await;
     assert_eq!(source_response.status(), reqwest::StatusCode::OK);
     let source_text = source_response.text().await.unwrap();
     assert_eq!(source_text, original_code);
@@ -191,9 +208,14 @@ async fn verify_submission_trace(submission_response: SubmissionResponse, source
     info!("Traces match");
 }
 
-async fn wait_submission(client: &Client, port: u16, submission_id: Ulid) -> Response {
+async fn wait_submission(
+    client: &Client,
+    port: u16,
+    submission_id: Ulid,
+    cookie: &reqwest::cookie::Cookie<'_>,
+) -> Response {
     loop {
-        let response = get_submission(&client, port, submission_id).await;
+        let response = get_submission(&client, port, submission_id, cookie).await;
         match response.status() {
             reqwest::StatusCode::OK => (),
             reqwest::StatusCode::NOT_FOUND => {
