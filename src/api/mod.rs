@@ -1,6 +1,7 @@
 mod error;
 
 pub use error::*;
+use tracing::instrument;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -40,9 +41,11 @@ pub fn api_routes() -> Router<Arc<AppState>> {
     // .route("/me", get(me_handler))
 }
 
+#[instrument(skip_all, fields(user=%user.id()))]
 async fn get_submission_trace_handler(
     State(state): State<Arc<AppState>>,
     Path(ulid): Path<Ulid>,
+    user: User,
 ) -> Response {
     let fut = open_file(
         submission_file(&state.submissions_folder, ulid),
@@ -55,9 +58,11 @@ async fn get_submission_trace_handler(
     }
 }
 
+#[instrument(skip_all, fields(user=%user.id()))]
 async fn get_submission_source_handler(
     State(state): State<Arc<AppState>>,
     Path(ulid): Path<Ulid>,
+    user: User,
 ) -> Response {
     let fut = open_file(
         source_file(&state.submissions_folder, ulid),
@@ -90,9 +95,11 @@ fn serve_file(file: tokio::fs::File, content_type: &'static str) -> Response {
 //     Json(user)
 // }
 
+#[instrument(skip_all, fields(user=%user.id()))]
 async fn get_submission_handler(
     State(state): State<Arc<AppState>>,
     Path(ulid): Path<Ulid>,
+    user: User,
 ) -> ApiResult<Submission> {
     state
         .db
@@ -103,6 +110,7 @@ async fn get_submission_handler(
         .map(Json)
 }
 
+#[instrument(skip_all, fields(user=%user.id()))]
 async fn create_submission_handler(
     State(state): State<Arc<AppState>>,
     user: User,
@@ -116,7 +124,6 @@ async fn create_submission_handler(
         .context("parse")
         .map_err(ApiError::BadRequest)?;
     tracing::debug!(
-        user_id=%user_id,
         submission_id=%id,
         size=source_code.len(),
         "New submission",
@@ -184,6 +191,7 @@ async fn ticks_from_field(field: Field<'_>) -> anyhow::Result<u32> {
     Ok(ticks_str.parse()?)
 }
 
+#[instrument(skip_all, fields(user=%user.id()))]
 async fn list_submissions_handler(
     State(state): State<Arc<AppState>>,
     user: User,

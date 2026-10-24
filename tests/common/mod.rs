@@ -121,7 +121,10 @@ pub async fn submit_program(
         .unwrap();
     client
         .post(request_url)
-        .header(reqwest::header::COOKIE, format!("{}={}", cookie.name(), cookie.value()))
+        .header(
+            reqwest::header::COOKIE,
+            format!("{}={}", cookie.name(), cookie.value()),
+        )
         .multipart(form)
         .send()
         .await
@@ -140,7 +143,10 @@ pub async fn get_submission(
         .unwrap();
     client
         .get(request_url)
-        .header(reqwest::header::COOKIE, format!("{}={}", cookie.name(), cookie.value()))
+        .header(
+            reqwest::header::COOKIE,
+            format!("{}={}", cookie.name(), cookie.value()),
+        )
         .send()
         .await
         .unwrap()
@@ -158,7 +164,10 @@ pub async fn get_submission_source(
         .unwrap();
     client
         .get(request_url)
-        .header(reqwest::header::COOKIE, format!("{}={}", cookie.name(), cookie.value()))
+        .header(
+            reqwest::header::COOKIE,
+            format!("{}={}", cookie.name(), cookie.value()),
+        )
         .send()
         .await
         .unwrap()
